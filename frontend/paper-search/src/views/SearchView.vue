@@ -34,6 +34,7 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 const keyword = ref('')
 
+// 校验关键词后跳转到结果页，并通过路由查询参数传递搜索词。
 function submitSearch() {
   const query = keyword.value.trim()
 

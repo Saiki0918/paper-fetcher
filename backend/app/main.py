@@ -13,7 +13,7 @@ from app.core.config import settings
 
 app = FastAPI(
     title="Paper Search API",
-    description="Search academic papers through OpenAlex.",
+    description="Search academic papers through multiple public scholarly APIs.",
     version="0.1.0",
 )
 
@@ -29,6 +29,7 @@ app.include_router(papers_router)
 
 
 @app.get("/api/health", tags=["system"])
+# 返回服务健康状态，供浏览器或部署环境检查后端是否可用。
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 

@@ -1,14 +1,17 @@
-import type { PaperSearchResponse } from '@/types/paper'
+import type { PaperPlatform, PaperSearchResponse } from '@/types/paper'
 
 const API_BASE_URL = '/api'
 
+// 请求后端论文搜索接口，并将响应解析为统一的搜索结果类型。
 export async function searchPapers(
   query: string,
+  platform: PaperPlatform = 'all',
   page = 1,
   pageSize = 10,
 ): Promise<PaperSearchResponse> {
   const params = new URLSearchParams({
     q: query,
+    platform,
     page: String(page),
     pageSize: String(pageSize),
   })

@@ -4,12 +4,14 @@ import httpx
 
 from app.core.config import settings
 from app.schemas.paper import Paper
+from app.sources.base import PaperSourceError, access_priority, access_type
 
 
-class OpenAlexError(Exception):
+class OpenAlexError(PaperSourceError):
     """Raised when OpenAlex cannot return a usable search response."""
 
 
+# 将 OpenAlex 倒排索引格式的摘要还原为按原顺序排列的文本。
 def reconstruct_abstract(index: dict[str, list[int]] | None) -> str | None:
     if not index:
         return None
@@ -29,6 +31,7 @@ class OpenAlexAdapter:
     name = "OpenAlex"
     endpoint = "https://api.openalex.org/works"
 
+    # 请求 OpenAlex 搜索接口，并将返回记录规范化为 Paper。
     async def search(
         self,
         *,
@@ -74,9 +77,11 @@ class OpenAlexAdapter:
         if not isinstance(total, int):
             total = 0
 
-        return [self.to_paper(work) for work in results if isinstance(work, dict)], total
+        papers = [self.to_paper(work) for work in results if isinstance(work, dict)]
+        return sorted(papers, key=access_priority), total
 
     @staticmethod
+    # 从一条 OpenAlex 原始 work 记录中提取统一论文字段。
     def to_paper(work: dict[str, Any]) -> Paper:
         primary_location = work.get("primary_location") or {}
         best_location = work.get("best_oa_location") or primary_location
@@ -105,16 +110,20 @@ class OpenAlexAdapter:
             if author.get("display_name")
         ]
 
-        return Paper(
+        paper = Paper(
             id=f"openalex:{work.get('id', '')}",
+            platform="openalex",
             title=work.get("display_name") or work.get("title") or "Untitled paper",
             year=work.get("publication_year"),
             authors=authors,
             abstract=reconstruct_abstract(work.get("abstract_inverted_index")),
             source=source,
+            doi=work.get("doi"),
             url=url,
             citation_count=work.get("cited_by_count"),
             download_count=None,
             is_open_access=bool((work.get("open_access") or {}).get("is_oa")),
             pdf_url=best_location.get("pdf_url"),
+            access_type="detail",
         )
+        return paper.model_copy(update={"access_type": access_type(paper)})

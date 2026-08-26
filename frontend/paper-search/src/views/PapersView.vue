@@ -11,15 +11,42 @@
     <section class="results-shell" aria-labelledby="results-title">
       <div class="results-heading">
         <div>
-          <p class="eyebrow">OPENALEX RESULTS</p>
+          <p class="eyebrow">{{ formatPlatform(selectedPlatform) }} RESULTS</p>
           <h1 id="results-title">Papers for “{{ query }}”</h1>
         </div>
-        <p v-if="meta" class="result-count">{{ formatNumber(meta.total) }} results</p>
+        <div class="result-controls">
+          <label for="platform">Platform</label>
+          <select id="platform" :value="selectedPlatform" @change="changePlatform">
+            <option value="all">All platforms</option>
+            <option value="openalex">OpenAlex</option>
+            <option value="crossref">Crossref</option>
+            <option value="arxiv">arXiv</option>
+            <option value="europepmc">Europe PMC</option>
+            <option value="pubmed">PubMed</option>
+            <option value="dblp">DBLP</option>
+            <option value="doaj">DOAJ</option>
+          </select>
+          <label for="access">Access</label>
+          <select id="access" :value="accessFilter" @change="changeAccessFilter">
+            <option value="all">All access</option>
+            <option value="openAccess">Open access</option>
+            <option value="hasPdf">Has PDF</option>
+            <option value="detailOnly">Detail page only</option>
+          </select>
+          <p v-if="meta" class="result-count">
+            {{ meta.totalIsApproximate ? 'About ' : '' }}{{ formatNumber(meta.total) }} results
+          </p>
+        </div>
       </div>
+
+      <p v-if="meta?.failedPlatforms.length" class="source-warning" role="status">
+        {{ meta.failedPlatforms.map(formatPlatform).join(', ') }} is temporarily unavailable;
+        the other platform results are still shown.
+      </p>
 
       <div v-if="loading" class="state-panel" role="status">
         <span class="loader" aria-hidden="true"></span>
-        <span>Searching OpenAlex…</span>
+        <span>Searching {{ formatPlatform(selectedPlatform) }}…</span>
       </div>
 
       <div v-else-if="errorMessage" class="state-panel error-panel" role="alert">
@@ -28,15 +55,16 @@
         <button type="button" class="retry-button" @click="loadPapers">Try again</button>
       </div>
 
-      <div v-else-if="!papers.length" class="state-panel">
+      <div v-else-if="!visiblePapers.length" class="state-panel">
         <strong>No papers found</strong>
-        <span>Try a broader keyword or search in English.</span>
+        <span>{{ accessFilter === 'all' ? 'Try a broader keyword or search in English.' : 'No current results match this access filter.' }}</span>
       </div>
 
       <div v-else class="paper-list">
-        <article v-for="paper in papers" :key="paper.id" class="paper-card">
+        <article v-for="paper in visiblePapers" :key="paper.id" class="paper-card">
           <div class="paper-card-main">
             <div class="paper-meta">
+              <span class="platform-label">{{ formatPlatform(paper.platform) }}</span>
               <span>{{ paper.source || 'Unknown source' }}</span>
               <span v-if="paper.year">{{ paper.year }}</span>
             </div>
@@ -48,6 +76,15 @@
             <p v-else class="abstract abstract-empty">暂无摘要</p>
           </div>
           <div class="paper-card-stats">
+            <a
+              v-if="paper.pdfUrl"
+              class="pdf-link"
+              :href="paper.pdfUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View PDF
+            </a>
             <div class="stat-block">
               <span class="stat-label">CITATIONS</span>
               <strong>{{ formatNumber(paper.citationCount) }}</strong>
@@ -56,7 +93,9 @@
               <span class="stat-label">DOWNLOADS</span>
               <strong>{{ formatNumber(paper.downloadCount) }}</strong>
             </div>
-            <span v-if="paper.isOpenAccess" class="oa-label">Open access</span>
+            <span :class="['access-label', `access-${paper.accessType}`]">
+              {{ formatAccessType(paper.accessType) }}
+            </span>
           </div>
         </article>
       </div>
@@ -78,7 +117,13 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { searchPapers } from '@/services/api'
-import type { Paper, PaperSearchMeta } from '@/types/paper'
+import type {
+  AccessFilter,
+  Paper,
+  PaperAccessType,
+  PaperPlatform,
+  PaperSearchMeta,
+} from '@/types/paper'
 
 const route = useRoute()
 const router = useRouter()
@@ -92,6 +137,36 @@ const query = computed(() => {
   return typeof value === 'string' ? value.trim() : ''
 })
 
+const selectedPlatform = computed<PaperPlatform>(() => {
+  const value = route.query.platform
+  const platforms: PaperPlatform[] = [
+    'openalex',
+    'crossref',
+    'arxiv',
+    'europepmc',
+    'pubmed',
+    'dblp',
+    'doaj',
+  ]
+  return typeof value === 'string' && platforms.includes(value as PaperPlatform)
+    ? (value as PaperPlatform)
+    : 'all'
+})
+
+const accessFilter = computed<AccessFilter>(() => {
+  const value = route.query.access
+  return value === 'openAccess' || value === 'hasPdf' || value === 'detailOnly' ? value : 'all'
+})
+
+const visiblePapers = computed(() => {
+  if (accessFilter.value === 'openAccess') return papers.value.filter((paper) => paper.isOpenAccess)
+  if (accessFilter.value === 'hasPdf') return papers.value.filter((paper) => paper.pdfUrl)
+  if (accessFilter.value === 'detailOnly') {
+    return papers.value.filter((paper) => !paper.isOpenAccess && !paper.pdfUrl)
+  }
+  return papers.value
+})
+
 const totalPages = computed(() => {
   if (!meta.value || meta.value.total === 0) return 1
   return Math.ceil(meta.value.total / meta.value.pageSize)
@@ -99,6 +174,7 @@ const totalPages = computed(() => {
 
 const currentPage = computed(() => meta.value?.page ?? 1)
 
+// 根据当前路由参数向后端请求论文，并更新页面的加载、数据和错误状态。
 async function loadPapers() {
   if (!query.value) {
     void router.replace({ name: 'search' })
@@ -110,7 +186,7 @@ async function loadPapers() {
 
   try {
     const requestedPage = Number(route.query.page) || 1
-    const response = await searchPapers(query.value, requestedPage)
+    const response = await searchPapers(query.value, selectedPlatform.value, requestedPage)
     papers.value = response.data
     meta.value = response.meta
     if (response.error) errorMessage.value = response.error.message
@@ -123,21 +199,76 @@ async function loadPapers() {
   }
 }
 
+// 将结果页切换到指定页，并保留当前关键词、平台和访问筛选条件。
 function goToPage(page: number) {
   if (page < 1 || page > totalPages.value || page === currentPage.value) return
-  void router.push({ name: 'papers', query: { q: query.value, page: String(page) } })
+  void router.push({
+    name: 'papers',
+    query: {
+      q: query.value,
+      platform: selectedPlatform.value,
+      access: accessFilter.value,
+      page: String(page),
+    },
+  })
 }
 
+// 切换平台筛选并回到该平台搜索结果的第一页。
+function changePlatform(event: Event) {
+  const platform = (event.target as HTMLSelectElement).value as PaperPlatform
+  void router.push({
+    name: 'papers',
+    query: { q: query.value, platform, access: accessFilter.value },
+  })
+}
+
+// 切换仅在当前页结果中生效的论文访问能力筛选。
+function changeAccessFilter(event: Event) {
+  const access = (event.target as HTMLSelectElement).value as AccessFilter
+  void router.push({
+    name: 'papers',
+    query: { q: query.value, platform: selectedPlatform.value, access },
+  })
+}
+
+// 将可选数字格式化为本地化字符串，缺失值显示为横线。
 function formatNumber(value: number | null | undefined) {
   return value == null ? '—' : value.toLocaleString()
 }
 
+// 将作者列表压缩为适合论文卡片展示的一行文本。
 function formatAuthors(authors: string[]) {
   if (authors.length <= 3) return authors.join(', ')
   return `${authors.slice(0, 3).join(', ')} 等 ${authors.length} 位作者`
 }
 
-watch([query, () => route.query.page], loadPapers, { immediate: true })
+// 将内部平台标识转换为用户界面显示名称。
+function formatPlatform(platform: PaperPlatform) {
+  const labels: Record<PaperPlatform, string> = {
+    all: 'All platforms',
+    openalex: 'OpenAlex',
+    crossref: 'Crossref',
+    arxiv: 'arXiv',
+    europepmc: 'Europe PMC',
+    pubmed: 'PubMed',
+    dblp: 'DBLP',
+    doaj: 'DOAJ',
+  }
+  return labels[platform]
+}
+
+// 将内部访问类型转换为论文卡片上的可读标签。
+function formatAccessType(accessType: PaperAccessType) {
+  const labels: Record<PaperAccessType, string> = {
+    openPdf: 'Open PDF',
+    pdf: 'PDF available',
+    open: 'Open access',
+    detail: 'Detail page',
+  }
+  return labels[accessType]
+}
+
+watch([query, selectedPlatform, () => route.query.page], loadPapers, { immediate: true })
 </script>
 
 <style scoped>
@@ -226,11 +357,42 @@ h1 {
   letter-spacing: 0;
 }
 
+.result-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.result-controls label {
+  color: #71817e;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.result-controls select {
+  min-height: 34px;
+  border: 1px solid #c9d9d5;
+  border-radius: 7px;
+  padding: 0 28px 0 10px;
+  background: #ffffff;
+  color: #142321;
+  font: inherit;
+  font-size: 0.88rem;
+}
+
 .result-count {
   margin: 0 0 4px;
   color: #71817e;
   font-size: 0.9rem;
   white-space: nowrap;
+}
+
+.source-warning {
+  margin: -10px 0 16px;
+  color: #8a611a;
+  font-size: 0.85rem;
 }
 
 .paper-list {
@@ -263,6 +425,10 @@ h1 {
   margin-right: 8px;
   color: #aab8b5;
   content: '·';
+}
+
+.platform-label {
+  color: #5c799f;
 }
 
 h2 {
@@ -330,11 +496,37 @@ h2 a:hover {
   font-size: 1.5rem;
 }
 
-.oa-label {
+.pdf-link {
+  border: 1px solid #9dc4bd;
+  border-radius: 6px;
+  padding: 5px 8px;
+  color: #15564f;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.pdf-link:hover {
+  background: #e7f1ef;
+}
+
+.access-label {
   margin-top: 8px;
-  color: #1c6b63;
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.access-openPdf,
+.access-open {
+  color: #1c6b63;
+}
+
+.access-pdf {
+  color: #42668f;
+}
+
+.access-detail {
+  color: #71817e;
 }
 
 .state-panel {
@@ -405,6 +597,10 @@ h2 a:hover {
     align-items: start;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .result-controls {
+    justify-content: flex-start;
   }
 
   .paper-card {
