@@ -39,7 +39,20 @@ def integer(value: Any) -> int | None:
 def extract_authors(info: dict[str, Any]) -> list[str]:
     raw_authors = info.get("authors")
     raw_authors = raw_authors.get("author") if isinstance(raw_authors, dict) else raw_authors
-    return [name for author in as_list(raw_authors) if (name := clean_text(author))]
+    authors : list[str] = []
+    for author in as_list(raw_authors):
+        if isinstance(author, dict):
+          row_name = author.get("#text") or author.get("text") or author.get("name")
+        else:
+            row_name = clean_text(author)
+
+        name = clean_text(row_name)
+        if name:
+            authors.append(name)
+
+    return authors
+        
+
 
 
 # 在 DBLP 的电子版本链接中查找直接 PDF 地址。
