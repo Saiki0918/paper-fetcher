@@ -1,41 +1,37 @@
-# Paper Search API
+# paper-fetcher 后端
 
-FastAPI backend for the Vue paper search frontend. It queries public scholarly APIs
-and returns a normalized `Paper` shape. Records with public full-text PDFs are
-ranked before records that only expose a landing page.
+这是 `paper-fetcher` 的 FastAPI 后端。它请求公开学术信息来源的 API，并将不同平台返回的 JSON 或 XML 数据转换为统一的 `Paper` 数据结构。具有公开 PDF 或开放获取标记的论文会优先展示。
 
-## Run locally
+项目整体说明、平台文档链接和前端启动方法请查看仓库根目录的 [README](../README.md)。
+
+## 启动后端
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-Copy-Item .env.example .env
 python -m app.main
 ```
 
-Then open `http://localhost:8080/docs` or call:
+后端启动后，可打开 `http://127.0.0.1:8080/docs` 查看 Swagger 接口文档，或调用：
 
 ```text
 GET http://localhost:8080/api/papers/search?q=machine%20learning&platform=all&page=1&pageSize=10
 ```
 
-Supported `platform` values are `all`, `openalex`, `crossref`, `arxiv`, `europepmc`,
-`pubmed`, `dblp`, and `doaj`. `all` searches them in parallel and returns
-de-duplicated results; its total is approximate. A platform that is temporarily
-unavailable is listed in `meta.failedPlatforms` without failing the other results.
+支持的 `platform` 值为：`all`、`openalex`、`crossref`、`arxiv`、`europepmc`、`pubmed`、`dblp`、`doaj`。
 
-`Paper` has three fields for access capability:
+- `all` 会并行搜索全部平台并去重；总数为近似值。
+- 某个平台暂时不可用时，会在 `meta.failedPlatforms` 中标记，不影响其他平台结果。
 
-- `url`: the source's landing/detail page.
-- `pdfUrl`: a known direct PDF URL, when provided by the platform.
-- `accessType`: `openPdf`, `pdf`, `open`, or `detail`. This is a record-level
-  capability and does not claim that every article from the same publication source
-  is accessible.
+`Paper` 通过以下字段描述访问能力：
 
-For PubMed, set `NCBI_EMAIL` to a real contact address in `.env`; `NCBI_API_KEY`
-is optional and increases its request allowance.
+- `url`：论文详情页或来源页。
+- `pdfUrl`：平台已提供的直接 PDF 地址。
+- `accessType`：`openPdf`、`pdf`、`open` 或 `detail`，表示这条论文记录的访问能力。
 
-When the repository root is open in VS Code, choose `FastAPI: Paper Search API` in
-Run and Debug and press F5. The launch configuration runs `app.main` from the
-backend directory, where the module starts Uvicorn on port 8080.
+## 可选配置
+
+不创建 `backend/.env` 也可以运行。只有需要填写联系邮箱、已有平台 API Key，或修改端口、超时时间时，才复制 `.env.example` 为 `.env` 并填写对应值。
+
+在 VS Code 打开仓库根目录后，选择运行和调试中的 `FastAPI: Paper Search API`，按 `F5` 即可启动。该配置会在 `backend` 目录执行 `app.main`，并在默认的 `8080` 端口启动 Uvicorn。
