@@ -9,7 +9,6 @@ export interface Paper {
   doi: string | null
   url: string
   citationCount: number | null
-  downloadCount: number | null
   isOpenAccess: boolean
   pdfUrl: string | null
   accessType: PaperAccessType

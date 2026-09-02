@@ -2,23 +2,23 @@
   <main class="search-page">
     <section class="search-shell" aria-labelledby="search-title">
       <div class="brand-mark">P</div>
-      <p class="eyebrow">OPEN ACADEMIC SEARCH</p>
-      <h1 id="search-title">Find the papers behind your next idea.</h1>
+      <p class="eyebrow">开放学术检索</p>
+      <h1 id="search-title">找到支撑你下一个想法的论文。</h1>
 
       <form class="search-form" @submit.prevent="submitSearch">
-        <label class="sr-only" for="keyword">Search papers</label>
+        <label class="sr-only" for="keyword">搜索论文</label>
         <input
           id="keyword"
           v-model="keyword"
           type="search"
-          placeholder="Try “machine learning” or “climate policy”"
+          placeholder="例如：机器学习、气候政策"
           autocomplete="off"
         />
-        <button type="submit" :disabled="!keyword.trim()">Search papers</button>
+        <button type="submit" :disabled="!keyword.trim()">搜索论文</button>
       </form>
 
-      <div class="search-hints" aria-label="Example searches">
-        <span>Try a topic</span>
+      <div class="search-hints" aria-label="示例搜索词">
+        <span>试试这些主题</span>
         <button type="button" @click="keyword = 'machine learning'">machine learning</button>
         <button type="button" @click="keyword = 'climate policy'">climate policy</button>
         <button type="button" @click="keyword = 'computer vision'">computer vision</button>

@@ -3,21 +3,21 @@
     <header class="topbar">
       <RouterLink class="brand" :to="{ name: 'search' }">
         <span class="brand-mark">P</span>
-        <span>Paper Search</span>
+        <span>论文搜索</span>
       </RouterLink>
-      <RouterLink class="new-search" :to="{ name: 'search' }">New search</RouterLink>
+      <RouterLink class="new-search" :to="{ name: 'search' }">重新搜索</RouterLink>
     </header>
 
     <section class="results-shell" aria-labelledby="results-title">
       <div class="results-heading">
         <div>
-          <p class="eyebrow">{{ formatPlatform(selectedPlatform) }} RESULTS</p>
-          <h1 id="results-title">Papers for “{{ query }}”</h1>
+          <p class="eyebrow">{{ formatPlatform(selectedPlatform) }}搜索结果</p>
+          <h1 id="results-title">“{{ query }}”的相关论文</h1>
         </div>
         <div class="result-controls">
-          <label for="platform">Platform</label>
+          <label for="platform">平台</label>
           <select id="platform" :value="selectedPlatform" @change="changePlatform">
-            <option value="all">All platforms</option>
+            <option value="all">全部平台</option>
             <option value="openalex">OpenAlex</option>
             <option value="crossref">Crossref</option>
             <option value="arxiv">arXiv</option>
@@ -26,38 +26,38 @@
             <option value="dblp">DBLP</option>
             <option value="doaj">DOAJ</option>
           </select>
-          <label for="access">Access</label>
+          <label for="access">访问方式</label>
           <select id="access" :value="accessFilter" @change="changeAccessFilter">
-            <option value="all">All access</option>
-            <option value="openAccess">Open access</option>
-            <option value="hasPdf">Has PDF</option>
-            <option value="detailOnly">Detail page only</option>
+            <option value="all">全部</option>
+            <option value="openAccess">开放获取</option>
+            <option value="hasPdf">有 PDF</option>
+            <option value="detailOnly">仅详情页</option>
           </select>
           <p v-if="meta" class="result-count">
-            {{ meta.totalIsApproximate ? 'About ' : '' }}{{ formatNumber(meta.total) }} results
+            {{ meta.totalIsApproximate ? '约 ' : '' }}{{ formatNumber(meta.total) }} 条结果
           </p>
         </div>
       </div>
 
       <p v-if="meta?.failedPlatforms.length" class="source-warning" role="status">
-        {{ meta.failedPlatforms.map(formatPlatform).join(', ') }} is temporarily unavailable;
-        the other platform results are still shown.
+        {{ meta.failedPlatforms.map(formatPlatform).join('、') }} 暂时不可用；
+        其余平台的结果仍会显示。
       </p>
 
       <div v-if="loading" class="state-panel" role="status">
         <span class="loader" aria-hidden="true"></span>
-        <span>Searching {{ formatPlatform(selectedPlatform) }}…</span>
+        <span>正在搜索{{ formatPlatform(selectedPlatform) }}…</span>
       </div>
 
       <div v-else-if="errorMessage" class="state-panel error-panel" role="alert">
-        <strong>Search unavailable</strong>
+        <strong>暂时无法搜索</strong>
         <span>{{ errorMessage }}</span>
-        <button type="button" class="retry-button" @click="loadPapers">Try again</button>
+        <button type="button" class="retry-button" @click="loadPapers">重试</button>
       </div>
 
       <div v-else-if="!visiblePapers.length" class="state-panel">
-        <strong>No papers found</strong>
-        <span>{{ accessFilter === 'all' ? 'Try a broader keyword or search in English.' : 'No current results match this access filter.' }}</span>
+        <strong>没有找到论文</strong>
+        <span>{{ accessFilter === 'all' ? '请尝试更宽泛的关键词，或使用英文搜索。' : '当前结果中没有符合该访问方式的论文。' }}</span>
       </div>
 
       <div v-else class="paper-list">
@@ -65,7 +65,7 @@
           <div class="paper-card-main">
             <div class="paper-meta">
               <span class="platform-label">{{ formatPlatform(paper.platform) }}</span>
-              <span>{{ paper.source || 'Unknown source' }}</span>
+              <span>{{ paper.source || '未知来源' }}</span>
               <span v-if="paper.year">{{ paper.year }}</span>
             </div>
             <h2>
@@ -83,15 +83,11 @@
               target="_blank"
               rel="noopener noreferrer"
             >
-              View PDF
+              查看 PDF
             </a>
             <div class="stat-block">
-              <span class="stat-label">CITATIONS</span>
+              <span class="stat-label">引用量</span>
               <strong>{{ formatNumber(paper.citationCount) }}</strong>
-            </div>
-            <div class="stat-block">
-              <span class="stat-label">DOWNLOADS</span>
-              <strong>{{ formatNumber(paper.downloadCount) }}</strong>
             </div>
             <span :class="['access-label', `access-${paper.accessType}`]">
               {{ formatAccessType(paper.accessType) }}
@@ -100,13 +96,13 @@
         </article>
       </div>
 
-      <nav v-if="meta && papers.length" class="pagination" aria-label="Pagination">
+      <nav v-if="meta && papers.length" class="pagination" aria-label="分页">
         <button type="button" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
-          Previous
+          上一页
         </button>
-        <span>Page {{ currentPage }} of {{ totalPages }}</span>
+        <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
         <button type="button" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
-          Next
+          下一页
         </button>
       </nav>
     </section>
@@ -245,7 +241,7 @@ function formatAuthors(authors: string[]) {
 // 将内部平台标识转换为用户界面显示名称。
 function formatPlatform(platform: PaperPlatform) {
   const labels: Record<PaperPlatform, string> = {
-    all: 'All platforms',
+    all: '全部平台',
     openalex: 'OpenAlex',
     crossref: 'Crossref',
     arxiv: 'arXiv',
@@ -260,10 +256,10 @@ function formatPlatform(platform: PaperPlatform) {
 // 将内部访问类型转换为论文卡片上的可读标签。
 function formatAccessType(accessType: PaperAccessType) {
   const labels: Record<PaperAccessType, string> = {
-    openPdf: 'Open PDF',
-    pdf: 'PDF available',
-    open: 'Open access',
-    detail: 'Detail page',
+    openPdf: '开放 PDF',
+    pdf: '可查看 PDF',
+    open: '开放获取',
+    detail: '仅详情页',
   }
   return labels[accessType]
 }
