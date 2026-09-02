@@ -27,7 +27,6 @@ class Paper(ApiModel):
     doi: str | None = None
     url: str
     citation_count: int | None = None
-    download_count: int | None = None
     is_open_access: bool = False
     pdf_url: str | None = None
     access_type: Literal["openPdf", "pdf", "open", "detail"] = "detail"

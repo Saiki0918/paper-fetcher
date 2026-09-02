@@ -1,14 +1,19 @@
+import logging
 from typing import Any
 
 import httpx
 
 from app.core.config import settings
+from app.core.http_client import request_json
 from app.schemas.paper import Paper
 from app.sources.base import PaperSourceError, access_priority, access_type
 
 
 class OpenAlexError(PaperSourceError):
     """Raised when OpenAlex cannot return a usable search response."""
+
+
+logger = logging.getLogger(__name__)
 
 
 # 将 OpenAlex 倒排索引格式的摘要还原为按原顺序排列的文本。
@@ -49,27 +54,25 @@ class OpenAlexAdapter:
         if settings.openalex_api_key:
             params["api_key"] = settings.openalex_api_key
 
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": f"PaperSearch/0.1 ({settings.openalex_mailto or 'local-development'})",
-        }
-
         try:
-            async with httpx.AsyncClient(
-                timeout=settings.http_timeout_seconds,
-                headers=headers,
-            ) as client:
-                response = await client.get(self.endpoint, params=params)
-                response.raise_for_status()
-                payload = response.json()
+            payload = await request_json(
+                self.endpoint,
+                params=params,
+                headers={
+                    "User-Agent": f"PaperSearch/0.4 ({settings.openalex_mailto or 'local-development'})",
+                },
+            )
         except (httpx.HTTPError, ValueError) as exc:
-            raise OpenAlexError from exc
+            logger.exception("OpenAlex 请求失败")
+            raise OpenAlexError(f"OpenAlex 请求失败: {exc}") from exc
 
         if not isinstance(payload, dict):
+            logger.warning("OpenAlex 返回的 JSON 根节点不是对象")
             raise OpenAlexError
 
         results = payload.get("results")
         if not isinstance(results, list):
+            logger.warning("OpenAlex 返回数据中缺少 results 列表")
             raise OpenAlexError
 
         meta = payload.get("meta") or {}
@@ -121,7 +124,6 @@ class OpenAlexAdapter:
             doi=work.get("doi"),
             url=url,
             citation_count=work.get("cited_by_count"),
-            download_count=None,
             is_open_access=bool((work.get("open_access") or {}).get("is_oa")),
             pdf_url=best_location.get("pdf_url"),
             access_type="detail",

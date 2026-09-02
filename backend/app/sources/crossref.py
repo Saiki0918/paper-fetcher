@@ -1,5 +1,4 @@
-import html
-import re
+import logging
 from typing import Any
 
 import httpx
@@ -7,17 +6,16 @@ import httpx
 from app.core.config import settings
 from app.schemas.paper import Paper
 from app.sources.base import PaperSourceError, access_priority, access_type
+from app.utils.parsing import first_string
+from app.utils.text import clean_text
+from app.core.http_client import request_json
 
 
 class CrossrefError(PaperSourceError):
     """Raised when Crossref cannot return a usable search response."""
 
 
-# 从字符串或字符串列表中取出第一个有效文本值。
-def first_string(value: Any) -> str | None:
-    if isinstance(value, list):
-        return next((item for item in value if isinstance(item, str) and item), None)
-    return value if isinstance(value, str) and value else None
+logger = logging.getLogger(__name__)
 
 
 # 按 Crossref 的多个日期字段顺序提取论文发表年份。
@@ -35,16 +33,6 @@ def extract_year(work: dict[str, Any]) -> int | None:
         if isinstance(first_part, list) and first_part and isinstance(first_part[0], int):
             return first_part[0]
     return None
-
-
-# 移除摘要中的 HTML 标签并还原实体字符。
-def strip_html(value: Any) -> str | None:
-    if not isinstance(value, str) or not value:
-        return None
-
-    text = re.sub(r"<[^>]*>", " ", value)
-    text = html.unescape(text)
-    return " ".join(text.split()) or None
 
 
 # 把 Crossref 作者对象列表转换为可展示的姓名列表。
@@ -104,31 +92,30 @@ class CrossrefAdapter:
         if settings.crossref_mailto:
             params["mailto"] = settings.crossref_mailto
 
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": f"PaperSearch/0.2 ({settings.crossref_mailto or 'local-development'})",
-        }
-
         try:
-            async with httpx.AsyncClient(
-                timeout=settings.http_timeout_seconds,
-                headers=headers,
-            ) as client:
-                response = await client.get(self.endpoint, params=params)
-                response.raise_for_status()
-                payload = response.json()
+            payload = await request_json(
+                self.endpoint,
+                params=params,
+                headers={
+                    "User-Agent": f"PaperSearch/0.4 ({settings.crossref_mailto or 'local-development'})",
+                },
+            )
         except (httpx.HTTPError, ValueError) as exc:
-            raise CrossrefError from exc
+            logger.exception("Crossref 请求失败")
+            raise CrossrefError(f"Crossref 请求失败: {exc}") from exc
 
         if not isinstance(payload, dict):
+            logger.warning("Crossref 返回的 JSON 根节点不是对象")
             raise CrossrefError
 
         message = payload.get("message")
         if not isinstance(message, dict):
+            logger.warning("Crossref 返回数据中缺少 message 对象")
             raise CrossrefError
 
         items = message.get("items")
         if not isinstance(items, list):
+            logger.warning("Crossref 返回数据中缺少 message.items 列表")
             raise CrossrefError
 
         total = message.get("total-results", 0)
@@ -159,12 +146,11 @@ class CrossrefAdapter:
             title=first_string(work.get("title")) or "Untitled paper",
             year=extract_year(work),
             authors=extract_authors(work),
-            abstract=strip_html(work.get("abstract")),
+            abstract=clean_text(work.get("abstract")),
             source=first_string(work.get("container-title")) or work.get("publisher"),
             doi=doi,
             url=url,
             citation_count=work.get("is-referenced-by-count"),
-            download_count=None,
             is_open_access=False,
             pdf_url=extract_pdf_url(work),
             access_type="detail",

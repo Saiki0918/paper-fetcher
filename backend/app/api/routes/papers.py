@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
@@ -14,6 +15,7 @@ from app.sources.openalex import OpenAlexAdapter
 from app.sources.pubmed import PubMedAdapter
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
+logger = logging.getLogger(__name__)
 
 sources: dict[str, PaperSource] = {
     "openalex": OpenAlexAdapter(),
@@ -149,6 +151,8 @@ async def search_all_platforms(
     for platform, result in zip(platform_names, results, strict=True):
         if isinstance(result, Exception):
             failed_platforms.append(platform)
+            # 保留服务端日志中的平台和原始异常，便于定位 502 的真实原因。
+            logger.warning("论文平台 %s 搜索失败: %s", platform, result, exc_info=result)
             continue
 
         papers, platform_total = result
@@ -157,7 +161,12 @@ async def search_all_platforms(
         total += platform_total
 
     if not searched_platforms:
-        raise PaperSourceError
+        details = "; ".join(
+            f"{platform}: {result}"
+            for platform, result in zip(platform_names, results, strict=True)
+            if isinstance(result, Exception)
+        )
+        raise PaperSourceError(f"所有论文平台请求均失败。{details}")
 
     unique_papers = deduplicate_papers(merged)
     unique_papers.sort(key=access_priority)
@@ -216,6 +225,13 @@ async def search_papers(
             failed_platforms = []
             total_is_approximate = False
     except PaperSourceError as exc:
+        # 单平台失败会在这里留下请求参数和异常信息，方便与适配器日志对应。
+        logger.exception(
+            "论文搜索失败：platform=%s, page=%s, pageSize=%s",
+            selected_platform,
+            page,
+            page_size,
+        )
         return error_response(
             query=keyword,
             page=page,

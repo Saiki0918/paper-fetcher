@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Final
 from xml.etree import ElementTree
@@ -5,23 +6,20 @@ from xml.etree import ElementTree
 import httpx
 
 from app.core.config import settings
+from app.core.http_client import create_http_client, request_content, request_json
 from app.schemas.paper import Paper
 from app.sources.base import PaperSourceError, access_priority, access_type
+from app.utils.xml import xml_text
 
 
 class PubMedError(PaperSourceError):
     """Raised when PubMed cannot return a usable search response."""
 
 
+logger = logging.getLogger(__name__)
+
+
 EUTILS_BASE: Final = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-
-
-# 提取 XML 元素的完整文字并清除多余空白。
-def xml_text(element: ElementTree.Element | None) -> str | None:
-    if element is None:
-        return None
-    value = " ".join("".join(element.itertext()).split())
-    return value or None
 
 
 # 从 PubMed 记录的多个日期位置依次读取发表年份。
@@ -114,22 +112,21 @@ class PubMedAdapter:
             "retmode": "json",
             **self.request_params(),
         }
-        headers = {"User-Agent": "PaperSearch/0.3 (academic-paper-search)"}
-
         try:
-            async with httpx.AsyncClient(
+            async with create_http_client(
                 timeout=settings.http_timeout_seconds,
-                headers=headers,
             ) as client:
-                search_response = await client.get(self.search_endpoint, params=search_params)
-                search_response.raise_for_status()
-                search_payload = search_response.json()
+                search_payload = await request_json(
+                    self.search_endpoint,
+                    params=search_params,
+                    client=client,
+                )
                 ids = self.extract_ids(search_payload)
                 total = self.extract_total(search_payload)
                 if not ids:
                     return [], total
 
-                fetch_response = await client.get(
+                fetch_content = await request_content(
                     self.fetch_endpoint,
                     params={
                         "db": "pubmed",
@@ -137,11 +134,12 @@ class PubMedAdapter:
                         "retmode": "xml",
                         **self.request_params(),
                     },
+                    client=client,
                 )
-                fetch_response.raise_for_status()
-            root = ElementTree.fromstring(fetch_response.content)
+            root = ElementTree.fromstring(fetch_content)
         except (httpx.HTTPError, ValueError, ElementTree.ParseError) as exc:
-            raise PubMedError from exc
+            logger.exception("PubMed 请求或 XML 解析失败")
+            raise PubMedError(f"PubMed 请求或 XML 解析失败: {exc}") from exc
 
         papers_by_id = {
             paper.id.removeprefix("pubmed:"): paper
@@ -197,7 +195,6 @@ class PubMedAdapter:
             doi=ids.get("doi"),
             url=detail_url,
             citation_count=None,
-            download_count=None,
             is_open_access=bool(pmcid),
             pdf_url=f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/pdf/" if pmcid else None,
             access_type="detail",

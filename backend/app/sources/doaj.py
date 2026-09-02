@@ -1,34 +1,20 @@
+import logging
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
-from app.core.config import settings
+from app.core.http_client import request_json
 from app.schemas.paper import Paper
 from app.sources.base import PaperSourceError, access_priority, access_type
+from app.utils.parsing import as_list, as_string, to_int
 
 
 class DoajError(PaperSourceError):
     """Raised when DOAJ cannot return a usable search response."""
 
 
-# 将单个值或空值统一转换成便于遍历的列表。
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else [value] if value is not None else []
-
-
-# 仅接受非空字符串，过滤接口中不符合预期的字段值。
-def string(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-# 将整数或纯数字字符串安全地转换为整数。
-def number(value: Any) -> int | None:
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
+logger = logging.getLogger(__name__)
 
 
 # 从 DOAJ 的 BibJSON 作者字段中提取姓名列表。
@@ -36,7 +22,7 @@ def extract_authors(bibjson: dict[str, Any]) -> list[str]:
     return [
         name
         for author in as_list(bibjson.get("author"))
-        if isinstance(author, dict) and (name := string(author.get("name")))
+        if isinstance(author, dict) and (name := as_string(author.get("name")))
     ]
 
 
@@ -44,7 +30,7 @@ def extract_authors(bibjson: dict[str, Any]) -> list[str]:
 def extract_doi(bibjson: dict[str, Any]) -> str | None:
     for identifier in as_list(bibjson.get("identifier")):
         if isinstance(identifier, dict) and identifier.get("type") == "doi":
-            return string(identifier.get("id"))
+            return as_string(identifier.get("id"))
     return None
 
 
@@ -55,12 +41,12 @@ def extract_links(bibjson: dict[str, Any]) -> tuple[str | None, str | None]:
     for link in as_list(bibjson.get("link")):
         if not isinstance(link, dict):
             continue
-        url = string(link.get("url"))
+        url = as_string(link.get("url"))
         if not url:
             continue
         if detail_url is None:
             detail_url = url
-        content_type = string(link.get("content_type"))
+        content_type = as_string(link.get("content_type"))
         if content_type == "application/pdf" or ".pdf" in url.lower():
             pdf_url = url
     return detail_url, pdf_url
@@ -80,21 +66,21 @@ class DoajAdapter:
     ) -> tuple[list[Paper], int]:
         url = f"{self.endpoint}/{quote(keyword, safe='')}"
         try:
-            async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
-                response = await client.get(url, params={"page": page, "pageSize": page_size})
-                response.raise_for_status()
-                payload = response.json()
+            payload = await request_json(url, params={"page": page, "pageSize": page_size})
         except (httpx.HTTPError, ValueError) as exc:
-            raise DoajError from exc
+            logger.exception("DOAJ 请求失败")
+            raise DoajError(f"DOAJ 请求失败: {exc}") from exc
 
         if not isinstance(payload, dict):
+            logger.warning("DOAJ 返回的 JSON 根节点不是对象")
             raise DoajError
         results = payload.get("results")
         if not isinstance(results, list):
+            logger.warning("DOAJ 返回数据中缺少 results 列表")
             raise DoajError
 
         papers = [self.to_paper(result) for result in results if isinstance(result, dict)]
-        return sorted(papers, key=access_priority), number(payload.get("total")) or 0
+        return sorted(papers, key=access_priority), to_int(payload.get("total")) or 0
 
     @staticmethod
     # 从一条 DOAJ 原始记录的 BibJSON 数据中提取统一论文字段。
@@ -105,20 +91,19 @@ class DoajAdapter:
         journal = journal if isinstance(journal, dict) else {}
         detail_url, pdf_url = extract_links(bibjson)
         doi = extract_doi(bibjson)
-        record_id = string(result.get("id")) or string(result.get("_id")) or doi or "unknown"
+        record_id = as_string(result.get("id")) or as_string(result.get("_id")) or doi or "unknown"
 
         paper = Paper(
             id=f"doaj:{record_id}",
             platform="doaj",
-            title=string(bibjson.get("title")) or "Untitled paper",
-            year=number(bibjson.get("year")),
+            title=as_string(bibjson.get("title")) or "Untitled paper",
+            year=to_int(bibjson.get("year")),
             authors=extract_authors(bibjson),
-            abstract=string(bibjson.get("abstract")),
-            source=string(journal.get("title")) or "DOAJ",
+            abstract=as_string(bibjson.get("abstract")),
+            source=as_string(journal.get("title")) or "DOAJ",
             doi=doi,
             url=detail_url or (f"https://doaj.org/article/{record_id}" if record_id != "unknown" else ""),
             citation_count=None,
-            download_count=None,
             is_open_access=True,
             pdf_url=pdf_url,
             access_type="detail",

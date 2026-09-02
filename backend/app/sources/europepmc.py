@@ -1,6 +1,4 @@
-import html
 import logging
-import re
 from typing import Any
 
 import httpx
@@ -8,6 +6,9 @@ import httpx
 from app.core.config import settings
 from app.schemas.paper import Paper
 from app.sources.base import PaperSourceError, access_priority, access_type
+from app.core.http_client import request_json
+from app.utils.parsing import as_string, to_int
+from app.utils.text import clean_text
 
 
 class EuropePmcError(PaperSourceError):
@@ -15,28 +16,6 @@ class EuropePmcError(PaperSourceError):
 
 
 logger = logging.getLogger(__name__)
-
-# 仅接受非空字符串，过滤接口中不符合预期的字段值。
-def as_string(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-# 将整数或纯数字字符串安全地转换为整数。
-def as_integer(value: Any) -> int | None:
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
-
-
-# 移除 Europe PMC 摘要中的 HTML 标签并保留纯文本。
-def clean_html(value: Any) -> str | None:
-    if not isinstance(value, str) or not value:
-        return None
-    text = html.unescape(re.sub(r"<[^>]*>", " ", value))
-    return " ".join(text.split()) or None
-
 
 # 从 Europe PMC 的作者结构或作者文本中提取姓名列表。
 def extract_authors(result: dict[str, Any]) -> list[str]:
@@ -99,31 +78,24 @@ class EuropePmcAdapter:
             "page": page,
             "pageSize": page_size,
         }
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": "PaperSearch/0.3 (academic-paper-search)",
-        }
-
         try:
-            async with httpx.AsyncClient(
+            payload = await request_json(
+                self.endpoint,
+                params=params,
                 timeout=settings.europepmc_timeout_seconds,
-                headers=headers,
-            ) as client:
-                response = await client.get(self.endpoint, params=params)
-                response.raise_for_status()
-                payload = response.json()
+            )
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
-            logger.warning("Europe PMC returned HTTP %s", status_code)
+            logger.exception("Europe PMC 返回 HTTP %s", status_code)
             raise EuropePmcError(f"Europe PMC 返回 HTTP {status_code}") from exc
         except httpx.TimeoutException as exc:
-            logger.warning("Europe PMC request timed out after %s seconds", settings.europepmc_timeout_seconds)
+            logger.exception("Europe PMC 请求在 %s 秒后超时", settings.europepmc_timeout_seconds)
             raise EuropePmcError("Europe PMC 请求超时，请稍后重试") from exc
         except httpx.RequestError as exc:
-            logger.warning("Europe PMC request failed: %s", exc)
+            logger.exception("Europe PMC 网络请求失败")
             raise EuropePmcError("Europe PMC 网络请求失败，请稍后重试") from exc
         except ValueError as exc:
-            logger.warning("Europe PMC returned invalid JSON: %s", exc)
+            logger.exception("Europe PMC 返回无法解析的 JSON")
             raise EuropePmcError("Europe PMC 返回的数据格式无法解析") from exc
 
         if not isinstance(payload, dict):
@@ -132,10 +104,10 @@ class EuropePmcAdapter:
         result_list = payload.get("resultList")
         results = result_list.get("result") if isinstance(result_list, dict) else None
         if not isinstance(results, list):
-            logger.warning("Europe PMC response does not contain resultList.result[]")
+            logger.warning("Europe PMC 返回数据中缺少 resultList.result 列表")
             raise EuropePmcError("Europe PMC 返回的数据中没有论文列表")
 
-        total = as_integer(payload.get("hitCount")) or 0
+        total = to_int(payload.get("hitCount")) or 0
         papers = [self.to_paper(result) for result in results if isinstance(result, dict)]
         return sorted(papers, key=access_priority), total
 
@@ -154,14 +126,13 @@ class EuropePmcAdapter:
             id=f"europepmc:{source_code}:{record_id}",
             platform="europepmc",
             title=as_string(result.get("title")) or "Untitled paper",
-            year=as_integer(result.get("pubYear")),
+            year=to_int(result.get("pubYear")),
             authors=extract_authors(result),
-            abstract=clean_html(result.get("abstractText")),
+            abstract=clean_text(result.get("abstractText")),
             source=source,
             doi=as_string(result.get("doi")),
             url=f"https://europepmc.org/article/{source_code}/{record_id}",
-            citation_count=as_integer(result.get("citedByCount")),
-            download_count=None,
+            citation_count=to_int(result.get("citedByCount")),
             is_open_access=is_open_access,
             pdf_url=extract_pdf_url(result),
             access_type="detail",

@@ -10,6 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.papers import router as papers_router
 from app.core.config import settings
+from app.core.logging_config import configure_logging
+
+# 在 FastAPI 应用创建前配置日志，确保启动和请求阶段都能被记录。
+configure_logging()
 
 app = FastAPI(
     title="Paper Search API",
