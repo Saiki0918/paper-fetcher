@@ -31,9 +31,9 @@
 | Crossref | DOI 元数据服务 | 全学科正式出版物 | JSON | [官网](https://www.crossref.org/) · [REST API 文档](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) | 可用于题目、作者、期刊、DOI 等元数据 |
 | arXiv | 开放预印本仓库 | 计算机、数学、物理等 | Atom XML | [官网](https://arxiv.org/) · [API 用户手册](https://info.arxiv.org/help/api/user-manual.html) | 摘要和 PDF 链接较完整 |
 | Europe PMC | 生物医学文献平台 | 医学、生命科学 | JSON | [官网](https://europepmc.org/) · [REST Web Service 文档](https://europepmc.org/RestfulWebService) | 可获得部分开放获取与 PDF 信息 |
-| PubMed | 生物医学文献索引 | 医学、生命科学 | JSON + XML | [官网](https://pubmed.ncbi.nlm.nih.gov/) · [NCBI E-utilities 文档](https://www.ncbi.nlm.nih.gov/books/NBK25501/) | 通过 PMID 检索；有 PMC ID 时通常可访问全文 |
+| PubMed | 生物医学文献索引 | 医学、生命科学 | JSON + XML | [官网](https://pubmed.ncbi.nlm.nih.gov/) · [NCBI E-utilities 详细文档](https://www.ncbi.nlm.nih.gov/books/NBK25500/) | 通过 PMID 检索；有 PMC ID 时通常可访问全文 |
 | DBLP | 计算机科学书目库 | 计算机科学 | JSON | [官网](https://dblp.org/) · [API 说明](https://dblp.org/faq/13501473.html) | 适合会议、期刊、作者与 DOI 信息 |
-| DOAJ | 开放获取期刊目录 | 全学科 | JSON | [官网](https://doaj.org/) · [API 文档](https://doaj.org/api/v3/docs) | 已实现适配器；当前可能被 Cloudflare 人机验证拦截 |
+| DOAJ | 开放获取期刊目录 | 全学科 | JSON | [官网](https://doaj.org/) · [v4 API 文档](https://doaj.org/api/v4/docs) | 已实现适配器；当前可能被 Cloudflare 人机验证拦截 |
 
 说明：平台是搜索数据来自哪里；来源（`source`）是论文本身发表的期刊、会议或仓库。例如论文可由 OpenAlex 搜到，但来源是 Nature，详情页位于出版社网站。
 
