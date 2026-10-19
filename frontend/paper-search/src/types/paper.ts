@@ -37,7 +37,7 @@ export interface Paper {
   doi: string | null
   /** 论文详情入口；缺少 PDF 时仍可用于查看原站信息。 */
   url: string
-  /** null 表示来源未提供统计，0 表示来源明确返回零引用。 */
+  /** 保留来源统计：null 为未提供、0 为零引用；页面将两者均显示为“暂无数据”。 */
   citationCount: number | null
   /** 来源提供的开放或免费访问状态，与是否存在 PDF 链接分别判断。 */
   isOpenAccess: boolean

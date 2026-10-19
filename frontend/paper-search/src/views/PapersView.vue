@@ -91,14 +91,18 @@
               class="stat-block"
               :title="
                 paper.citationCount == null
-                  ? '当前来源未提供引用量，不代表零引用'
-                  : '引用量按当前来源的收录范围统计'
+                  ? '当前来源未提供引用量'
+                  : paper.citationCount === 0
+                    ? '当前来源暂无引用记录'
+                    : '引用量按当前来源的收录范围统计'
               "
             >
               <span class="stat-label">引用量</span>
-              <!-- 区分来源未提供的统计与明确返回的 0 次引用。 -->
+              <!-- 按显示约定，缺失引用量与 0 均显示“暂无数据”，不改写接口返回的原值。 -->
               <strong>{{
-                paper.citationCount == null ? '暂无数据' : formatNumber(paper.citationCount)
+                paper.citationCount == null || paper.citationCount === 0
+                  ? '暂无数据'
+                  : formatNumber(paper.citationCount)
               }}</strong>
             </div>
             <span :class="['access-label', `access-${paper.accessType}`]">

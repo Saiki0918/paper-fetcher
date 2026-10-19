@@ -158,8 +158,8 @@ describe('preprint platform search', () => {
     wrapper.unmount()
   })
 
-  // 两张卡片分别覆盖未知引用量与真实 0；缺少 PDF 的卡片仍保留可点击的详情入口。
-  it('distinguishes a missing citation count from a real zero and hides absent PDFs', async () => {
+  // 缺失与 0 统一显示“暂无数据”，正数照常显示；缺少 PDF 时仍保留详情入口。
+  it('shows missing or zero citations as unavailable and hides absent PDFs', async () => {
     const payload = response('chemrxiv')
     payload.data.push({
       ...payload.data[0]!,
@@ -169,11 +169,17 @@ describe('preprint platform search', () => {
       pdfUrl: null,
       accessType: 'open',
     })
+    payload.data.push({
+      ...payload.data[0]!,
+      id: 'chemrxiv:789',
+      citationCount: 1234,
+    })
     vi.mocked(searchPapers).mockResolvedValue(payload)
     const { wrapper } = await render('chemrxiv')
     const cards = wrapper.findAll('.paper-card')
     expect(cards[0]!.get('.stat-block strong').text()).toBe('暂无数据')
-    expect(cards[1]!.get('.stat-block strong').text()).toBe('0')
+    expect(cards[1]!.get('.stat-block strong').text()).toBe('暂无数据')
+    expect(cards[2]!.get('.stat-block strong').text()).toBe((1234).toLocaleString())
     expect(cards[1]!.find('.pdf-link').exists()).toBe(false)
     expect(cards[1]!.get('h2 a').attributes('href')).toBe('https://example.org/paper')
     wrapper.unmount()
