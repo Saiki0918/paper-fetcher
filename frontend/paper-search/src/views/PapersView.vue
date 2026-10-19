@@ -127,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { searchPapers } from '@/services/api'
 import { PAPER_PLATFORMS } from '@/types/paper'
@@ -145,6 +145,17 @@ const papers = ref<Paper[]>([])
 const meta = ref<PaperSearchMeta | null>(null)
 const loading = ref(false)
 const errorMessage = ref('')
+
+// 请求共用上面的页面状态；编号决定谁有权修改它们，控制器负责取消无用的网络等待。
+let latestRequestId = 0
+let activeController: AbortController | null = null
+
+// 必须先使编号失效再取消：abort 后旧请求仍会执行 catch 和 finally。
+function cancelActiveRequest() {
+  latestRequestId += 1
+  activeController?.abort()
+  activeController = null
+}
 
 // 路由查询值可能是数组或空值，只接受单个字符串作为关键词。
 const query = computed(() => {
@@ -186,28 +197,52 @@ const currentPage = computed(() => meta.value?.page ?? 1)
 
 // 根据当前路由参数向后端请求论文，并更新页面的加载、数据和错误状态。
 async function loadPapers() {
+  // 即使新关键词为空，也先使旧请求失效，防止跳回搜索页时仍有旧响应回写。
+  cancelActiveRequest()
+  const requestId = latestRequestId
+
   if (!query.value) {
+    loading.value = false
     void router.replace({ name: 'search' })
     return
   }
 
+  // 已取消的控制器不能复用，每次搜索（包括同条件重试）都创建独立控制器。
+  const controller = new AbortController()
+  activeController = controller
   loading.value = true
   errorMessage.value = ''
 
   try {
     const requestedPage = Number(route.query.page) || 1
     // 后端目前接收关键词、平台与页码；访问方式筛选由 visiblePapers 在本地完成。
-    const response = await searchPapers(query.value, selectedPlatform.value, requestedPage)
+    const response = await searchPapers(
+      query.value,
+      selectedPlatform.value,
+      requestedPage,
+      10,
+      controller.signal,
+    )
+    // 取消不能回滚已经完成的响应；只有最新且未被取消的请求才允许更新结果。
+    if (requestId !== latestRequestId || controller.signal.aborted) return
+
     papers.value = response.data
     meta.value = response.meta
     if (response.error) errorMessage.value = response.error.message
   } catch (error) {
-    // 请求失败时清理上一页数据与分页信息，避免旧结果被当作本次搜索成功结果。
+    // 主动取消和旧请求的异常无需提示，也不能清空新请求正在使用的页面数据。
+    if (requestId !== latestRequestId || controller.signal.aborted) return
+
+    // 只有当前请求真正失败，才清理结果与分页信息并显示错误。
     papers.value = []
     meta.value = null
     errorMessage.value = error instanceof Error ? error.message : '搜索请求失败，请稍后重试'
   } finally {
-    loading.value = false
+    // 旧请求也会执行 finally；不能让它关闭新请求的“正在搜索”或清掉新控制器。
+    if (requestId === latestRequestId) {
+      loading.value = false
+      activeController = null
+    }
   }
 }
 
@@ -273,6 +308,9 @@ function formatAccessType(accessType: PaperAccessType) {
 
 // 首次进入和关键词、平台、页码变化时取数；访问筛选本身不在远程请求的监听项中。
 watch([query, selectedPlatform, () => route.query.page], loadPapers, { immediate: true })
+
+// 离开结果页时同时失效编号和取消请求，阻止尚未完成的异步流程继续回写页面。
+onBeforeUnmount(cancelActiveRequest)
 </script>
 
 <style scoped>

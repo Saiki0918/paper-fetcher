@@ -8,6 +8,7 @@ export async function searchPapers(
   platform: PaperPlatform = 'all',
   page = 1,
   pageSize = 10,
+  signal?: AbortSignal,
 ): Promise<PaperSearchResponse> {
   const params = new URLSearchParams({
     q: query,
@@ -16,7 +17,8 @@ export async function searchPapers(
     pageSize: String(pageSize),
   })
 
-  const response = await fetch(`${API_BASE_URL}/papers/search?${params.toString()}`)
+  // 将页面的取消信号传给 fetch，使取消能中止网络等待或尚未结束的响应体读取。
+  const response = await fetch(`${API_BASE_URL}/papers/search?${params.toString()}`, { signal })
   const payload = (await response.json()) as PaperSearchResponse
 
   if (!response.ok) {
