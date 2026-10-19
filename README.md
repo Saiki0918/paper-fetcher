@@ -34,10 +34,27 @@
 | PubMed | 生物医学文献索引 | 医学、生命科学 | JSON + XML | [官网](https://pubmed.ncbi.nlm.nih.gov/) · [NCBI E-utilities 详细文档](https://www.ncbi.nlm.nih.gov/books/NBK25500/) | 通过 PMID 检索；有 PMC ID 时通常可访问全文 |
 | DBLP | 计算机科学书目库 | 计算机科学 | JSON | [官网](https://dblp.org/) · [API 说明](https://dblp.org/faq/13501473.html) | 适合会议、期刊、作者与 DOI 信息 |
 | DOAJ | 开放获取期刊目录 | 全学科 | JSON | [官网](https://doaj.org/) · [v4 API 文档](https://doaj.org/api/v4/docs) | 已实现适配器；当前可能被 Cloudflare 人机验证拦截 |
+| bioRxiv | 生命科学预印本 | 生物学、生命科学 | JSON | [官网](https://www.biorxiv.org/) · [Europe PMC API](https://europepmc.org/RestfulWebService) | 通过 Europe PMC 按预印本类型及发布平台检索 |
+| medRxiv | 医学预印本 | 临床医学、公共卫生 | JSON | [官网](https://www.medrxiv.org/) · [Europe PMC API](https://europepmc.org/RestfulWebService) | 通过 Europe PMC 按预印本类型及发布平台检索 |
+| ChemRxiv | 化学预印本 | 化学及交叉领域 | JSON | [官网](https://chemrxiv.org/) · [Europe PMC API](https://europepmc.org/RestfulWebService) | 当前使用 Europe PMC 收录的记录；不依赖可能返回 403 的原站接口 |
+| Research Square | 多学科预印本 | 医学、生命科学等 | JSON | [官网](https://www.researchsquare.com/) · [官方 API 说明](https://www.researchsquare.com/request-api) | 使用官方建议的 Europe PMC 公开索引，无需申请原站令牌 |
+| OSF Preprints | OSF 社区预印本合集 | 多学科 | JSON | [官网](https://osf.io/preprints/) · [API 文档](https://developer.osf.io/) | 标题关键词检索，包含各 OSF 社区的公开记录 |
+| PsyArXiv | OSF 社区预印本 | 心理学 | JSON | [官网](https://osf.io/preprints/psyarxiv) · [OSF API](https://developer.osf.io/) | 使用 OSF 的 PsyArXiv 社区检索入口 |
+| SocArXiv | OSF 社区预印本 | 社会科学 | JSON | [官网](https://osf.io/preprints/socarxiv) · [OSF API](https://developer.osf.io/) | 使用 OSF 的 SocArXiv 社区检索入口 |
+| HAL Preprints | 开放仓储中的预印本 / 工作论文 | 多学科 | JSON | [官网](https://hal.science/) · [搜索 API](https://api.archives-ouvertes.fr/docs/search) | 限定 `docType_s:UNDEFINED`，不混入其他文献类别 |
+| Zenodo Preprints | 综合仓储中的预印本 | 多学科 | JSON | [官网](https://zenodo.org/) · [API 文档](https://developers.zenodo.org/) | 限定 `type=publication&subtype=preprint`；仅开放 PDF 提供下载链接 |
 
 说明：平台是搜索数据来自哪里；来源（`source`）是论文本身发表的期刊、会议或仓库。例如论文可由 OpenAlex 搜到，但来源是 Nature，详情页位于出版社网站。
 
+新增预印本入口说明：bioRxiv、medRxiv、ChemRxiv、Research Square 的检索服务由 Europe PMC 提供，`platform` 表示用户所选的预印本发布平台，`source` 显示原平台名称，详情链接优先通过 DOI 跳转原文。它们只覆盖 Europe PMC 已收录的记录，可能存在索引延迟，不能视为原平台全库检索。OSF 的当前检索范围为标题，不是摘要或全文；PsyArXiv、SocArXiv 也包含在 OSF 社区合集内。`all` 会对重叠记录去重并保留访问能力更好的记录。
+
+上述四个平台共用索引搜索，并按原平台分别补充 PDF：bioRxiv / medRxiv 查询官方 DOI 明细、核对版本后使用原站入口，Research Square 读取对应版本原文页明确提供的下载链接，ChemRxiv 使用完整 DOI 的原站 PDF 路由。Europe PMC 总入口也对相应 PPR 记录执行同样处理；原站补查失败不影响基础论文返回。具体规则、联网样本结果与 Postman 原站明细示例见 [接口对照说明](docs/postman/README.md)。
+
+SSRN、TechRxiv 暂未接入：尚未确认可稳定用于本项目关键词检索的公开官方 API。
+
 ### 各平台 Postman 测试接口
+
+新增预印本来源提供了[可导入的 Postman 集合](docs/postman/preprint-apis.postman_collection.json)与[字段对照说明](docs/postman/README.md)，包含 9 个原始接口、9 个本地接口及 3 个文件 / 元数据排查请求。
 
 以下接口均为关键词 `machine learning`、返回 5 条数据的示例。将整条 URL 复制到 Postman，使用 `GET` 方法发送即可。
 
@@ -50,6 +67,14 @@
 | PubMed（第一步搜索 PMID） | `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=machine%20learning&retmode=json&retmax=5` |
 | DBLP | `https://dblp.org/search/publ/api?q=machine%20learning&format=json&h=5` |
 | DOAJ | `https://doaj.org/api/search/articles/machine%20learning?page=1&pageSize=5` |
+| bioRxiv（Europe PMC 索引） | `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=%28machine%20learning%29%20AND%20SRC%3APPR%20AND%20PUBLISHER%3A%22bioRxiv%22&format=json&pageSize=5&resultType=core` |
+| medRxiv（Europe PMC 索引） | 同上，将 `bioRxiv` 替换为 `medRxiv` |
+| ChemRxiv（Europe PMC 索引） | 同上，将 `bioRxiv` 替换为 `ChemRxiv` |
+| Research Square（Europe PMC 索引） | 同上，将 `bioRxiv` 替换为 `Research%20Square` |
+| OSF Preprints | `https://api.osf.io/v2/preprints/?filter%5Btitle%5D=machine%20learning&page=1&page%5Bsize%5D=5` |
+| PsyArXiv / SocArXiv | `https://api.osf.io/v2/providers/preprints/psyarxiv/preprints/?filter%5Btitle%5D=machine%20learning&page=1&page%5Bsize%5D=5`；SocArXiv 将路径中的 `psyarxiv` 替换为 `socarxiv` |
+| HAL Preprints | `https://api.archives-ouvertes.fr/search/?q=machine%20learning&fq=docType_s%3AUNDEFINED&wt=json&start=0&rows=5` |
+| Zenodo Preprints | `https://zenodo.org/api/records?q=machine%20learning&type=publication&subtype=preprint&page=1&size=5` |
 
 > PubMed 返回的是 PMID 列表，需要再调用 `efetch.fcgi` 获取论文详细 XML；项目后端已完成这两步请求。DOAJ 在当前网络环境中可能返回 Cloudflare 验证页面，OpenAlex 当前也可能无法连接。
 
@@ -64,7 +89,7 @@
 
 ### 后端
 
-- Python
+- Python 3.10 或更高版本
 - FastAPI
 - Uvicorn
 - httpx
@@ -95,6 +120,8 @@
 
 ### 1. 启动后端
 
+先运行 `python --version` 确认当前解释器为 **Python 3.10+**。虚拟环境使用创建它时的 Python 版本；已有 Python 3.8 环境不能通过重新激活升级，需要用新版解释器另建环境。
+
 ```powershell
 cd backend
 python -m venv .venv
@@ -102,6 +129,8 @@ python -m venv .venv
 pip install -r requirements.txt
 python -m app.main
 ```
+
+如果默认 `python` 版本过旧，可将创建环境的命令替换为 `py -3.12 -m venv .venv`（需已安装并注册 Python 3.12），或使用已安装的新版本 Python 的完整路径执行 `-m venv .venv`。已激活其他虚拟环境时，先运行 `deactivate`，并使用新的目录名保存新环境，避免覆盖旧环境。
 
 后端默认运行在 `http://127.0.0.1:8080`。
 
@@ -128,7 +157,7 @@ GET /api/papers/search?q=machine%20learning&platform=all&page=1&pageSize=10
 | 参数 | 说明 |
 |---|---|
 | `q` | 搜索关键词，必填 |
-| `platform` | `all` 或具体平台：`openalex`、`crossref`、`arxiv`、`europepmc`、`pubmed`、`dblp`、`doaj` |
+| `platform` | `all` 或具体平台：`openalex`、`crossref`、`arxiv`、`europepmc`、`pubmed`、`dblp`、`doaj`、`biorxiv`、`medrxiv`、`chemrxiv`、`researchsquare`、`osf`、`psyarxiv`、`socarxiv`、`hal`、`zenodo` |
 | `page` | 页码，从 1 开始 |
 | `pageSize` | 每页数量，范围为 1–50 |
 
@@ -178,6 +207,25 @@ backend/logs/paper-search.log
 ```
 
 日志包含网络请求、超时、HTTP 错误和数据解析问题。日志目录已写入 `.gitignore`，不会被提交。
+
+## 验证
+
+后端适配器和搜索接口的离线回归测试（不访问外网）：
+
+```powershell
+cd backend
+python -m unittest discover -s tests -v
+```
+
+前端测试与构建：
+
+```powershell
+cd frontend\paper-search
+npm run test:unit -- --run
+npm run build
+```
+
+实时调用仍受各平台的网络、限流和服务状态影响；失败会通过原有 `meta.failedPlatforms` 或单平台 502 响应呈现。
 
 ## 已知限制
 

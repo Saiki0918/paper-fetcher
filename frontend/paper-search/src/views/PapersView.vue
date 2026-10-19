@@ -16,15 +16,11 @@
         </div>
         <div class="result-controls">
           <label for="platform">平台</label>
+          <!-- 平台选项与路由白名单、显示名称共用配置，新增来源后同步出现在此处。 -->
           <select id="platform" :value="selectedPlatform" @change="changePlatform">
-            <option value="all">全部平台</option>
-            <option value="openalex">OpenAlex</option>
-            <option value="crossref">Crossref</option>
-            <option value="arxiv">arXiv</option>
-            <option value="europepmc">Europe PMC</option>
-            <option value="pubmed">PubMed</option>
-            <option value="dblp">DBLP</option>
-            <option value="doaj">DOAJ</option>
+            <option v-for="item in PAPER_PLATFORMS" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
           </select>
           <label for="access">访问方式</label>
           <select id="access" :value="accessFilter" @change="changeAccessFilter">
@@ -39,6 +35,7 @@
         </div>
       </div>
 
+      <!-- 部分来源失败仅显示提示，继续渲染其他平台成功返回的结果。 -->
       <p v-if="meta?.failedPlatforms.length" class="source-warning" role="status">
         {{ meta.failedPlatforms.map(formatPlatform).join('、') }} 暂时不可用；
         其余平台的结果仍会显示。
@@ -57,7 +54,11 @@
 
       <div v-else-if="!visiblePapers.length" class="state-panel">
         <strong>没有找到论文</strong>
-        <span>{{ accessFilter === 'all' ? '请尝试更宽泛的关键词，或使用英文搜索。' : '当前结果中没有符合该访问方式的论文。' }}</span>
+        <span>{{
+          accessFilter === 'all'
+            ? '请尝试更宽泛的关键词，或使用英文搜索。'
+            : '当前结果中没有符合该访问方式的论文。'
+        }}</span>
       </div>
 
       <div v-else class="paper-list">
@@ -76,6 +77,7 @@
             <p v-else class="abstract abstract-empty">暂无摘要</p>
           </div>
           <div class="paper-card-stats">
+            <!-- 以实际 pdfUrl 决定按钮是否出现，开放标记本身不能保证存在 PDF。 -->
             <a
               v-if="paper.pdfUrl"
               class="pdf-link"
@@ -85,9 +87,19 @@
             >
               查看 PDF
             </a>
-            <div class="stat-block">
+            <div
+              class="stat-block"
+              :title="
+                paper.citationCount == null
+                  ? '当前来源未提供引用量，不代表零引用'
+                  : '引用量按当前来源的收录范围统计'
+              "
+            >
               <span class="stat-label">引用量</span>
-              <strong>{{ formatNumber(paper.citationCount) }}</strong>
+              <!-- 区分来源未提供的统计与明确返回的 0 次引用。 -->
+              <strong>{{
+                paper.citationCount == null ? '暂无数据' : formatNumber(paper.citationCount)
+              }}</strong>
             </div>
             <span :class="['access-label', `access-${paper.accessType}`]">
               {{ formatAccessType(paper.accessType) }}
@@ -96,12 +108,17 @@
         </article>
       </div>
 
+      <!-- 当前页可能被访问筛选全部隐藏，原始页有记录时仍保留翻页入口。 -->
       <nav v-if="meta && papers.length" class="pagination" aria-label="分页">
         <button type="button" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
           上一页
         </button>
         <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
-        <button type="button" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+        <button
+          type="button"
+          :disabled="currentPage >= totalPages"
+          @click="goToPage(currentPage + 1)"
+        >
           下一页
         </button>
       </nav>
@@ -113,6 +130,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { searchPapers } from '@/services/api'
+import { PAPER_PLATFORMS } from '@/types/paper'
 import type {
   AccessFilter,
   Paper,
@@ -128,32 +146,27 @@ const meta = ref<PaperSearchMeta | null>(null)
 const loading = ref(false)
 const errorMessage = ref('')
 
+// 路由查询值可能是数组或空值，只接受单个字符串作为关键词。
 const query = computed(() => {
   const value = route.query.q
   return typeof value === 'string' ? value.trim() : ''
 })
 
+// 手工修改 URL 或访问旧链接时，未注册的平台统一回退到全部平台。
 const selectedPlatform = computed<PaperPlatform>(() => {
   const value = route.query.platform
-  const platforms: PaperPlatform[] = [
-    'openalex',
-    'crossref',
-    'arxiv',
-    'europepmc',
-    'pubmed',
-    'dblp',
-    'doaj',
-  ]
-  return typeof value === 'string' && platforms.includes(value as PaperPlatform)
+  return typeof value === 'string' && PAPER_PLATFORMS.some((item) => item.value === value)
     ? (value as PaperPlatform)
     : 'all'
 })
 
+// 筛选状态保存在 URL 中，刷新页面和翻页时都可恢复；非法值按全部处理。
 const accessFilter = computed<AccessFilter>(() => {
   const value = route.query.access
   return value === 'openAccess' || value === 'hasPdf' || value === 'detailOnly' ? value : 'all'
 })
 
+// 目前只筛选后端已返回的当前页，不发送访问参数，也不继续请求其他页补齐数量。
 const visiblePapers = computed(() => {
   if (accessFilter.value === 'openAccess') return papers.value.filter((paper) => paper.isOpenAccess)
   if (accessFilter.value === 'hasPdf') return papers.value.filter((paper) => paper.pdfUrl)
@@ -163,6 +176,7 @@ const visiblePapers = computed(() => {
   return papers.value
 })
 
+// 页数按后端原始命中数计算，不是访问筛选后的数量；全平台总数还可能存在重叠。
 const totalPages = computed(() => {
   if (!meta.value || meta.value.total === 0) return 1
   return Math.ceil(meta.value.total / meta.value.pageSize)
@@ -182,11 +196,13 @@ async function loadPapers() {
 
   try {
     const requestedPage = Number(route.query.page) || 1
+    // 后端目前接收关键词、平台与页码；访问方式筛选由 visiblePapers 在本地完成。
     const response = await searchPapers(query.value, selectedPlatform.value, requestedPage)
     papers.value = response.data
     meta.value = response.meta
     if (response.error) errorMessage.value = response.error.message
   } catch (error) {
+    // 请求失败时清理上一页数据与分页信息，避免旧结果被当作本次搜索成功结果。
     papers.value = []
     meta.value = null
     errorMessage.value = error instanceof Error ? error.message : '搜索请求失败，请稍后重试'
@@ -214,11 +230,12 @@ function changePlatform(event: Event) {
   const platform = (event.target as HTMLSelectElement).value as PaperPlatform
   void router.push({
     name: 'papers',
+    // 省略 page 参数以回到第一页，保留用户已选的访问方式。
     query: { q: query.value, platform, access: accessFilter.value },
   })
 }
 
-// 切换仅在当前页结果中生效的论文访问能力筛选。
+// 更新本地访问筛选并省略 page 回到第一页；若原先在后续页，页码变化会触发重新取数。
 function changeAccessFilter(event: Event) {
   const access = (event.target as HTMLSelectElement).value as AccessFilter
   void router.push({
@@ -240,17 +257,7 @@ function formatAuthors(authors: string[]) {
 
 // 将内部平台标识转换为用户界面显示名称。
 function formatPlatform(platform: PaperPlatform) {
-  const labels: Record<PaperPlatform, string> = {
-    all: '全部平台',
-    openalex: 'OpenAlex',
-    crossref: 'Crossref',
-    arxiv: 'arXiv',
-    europepmc: 'Europe PMC',
-    pubmed: 'PubMed',
-    dblp: 'DBLP',
-    doaj: 'DOAJ',
-  }
-  return labels[platform]
+  return PAPER_PLATFORMS.find((item) => item.value === platform)?.label ?? platform
 }
 
 // 将内部访问类型转换为论文卡片上的可读标签。
@@ -264,6 +271,7 @@ function formatAccessType(accessType: PaperAccessType) {
   return labels[accessType]
 }
 
+// 首次进入和关键词、平台、页码变化时取数；访问筛选本身不在远程请求的监听项中。
 watch([query, selectedPlatform, () => route.query.page], loadPapers, { immediate: true })
 </script>
 

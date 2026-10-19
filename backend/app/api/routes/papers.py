@@ -11,12 +11,17 @@ from app.sources.crossref import CrossrefAdapter
 from app.sources.dblp import DblpAdapter
 from app.sources.doaj import DoajAdapter
 from app.sources.europepmc import EuropePmcAdapter
+from app.sources.hal import HalAdapter
 from app.sources.openalex import OpenAlexAdapter
+from app.sources.osf import OsfPreprintAdapter
+from app.sources.preprints import IndexedPreprintAdapter
 from app.sources.pubmed import PubMedAdapter
+from app.sources.zenodo import ZenodoAdapter
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
 logger = logging.getLogger(__name__)
 
+# 注册表键是前端提交的稳定平台标识；适配器负责各自的查询规则和字段转换。
 sources: dict[str, PaperSource] = {
     "openalex": OpenAlexAdapter(),
     "crossref": CrossrefAdapter(),
@@ -25,7 +30,20 @@ sources: dict[str, PaperSource] = {
     "pubmed": PubMedAdapter(),
     "dblp": DblpAdapter(),
     "doaj": DoajAdapter(),
+    # 四个平台通过 Europe PMC 的预印本索引提供关键词搜索。
+    "biorxiv": IndexedPreprintAdapter("biorxiv", "bioRxiv"),
+    "medrxiv": IndexedPreprintAdapter("medrxiv", "medRxiv"),
+    "chemrxiv": IndexedPreprintAdapter("chemrxiv", "ChemRxiv"),
+    "researchsquare": IndexedPreprintAdapter("researchsquare", "Research Square"),
+    # OSF 合集与两个独立社区共用适配器，社区范围由 provider 专属接口限定。
+    "osf": OsfPreprintAdapter(),
+    "psyarxiv": OsfPreprintAdapter("psyarxiv", "PsyArXiv"),
+    "socarxiv": OsfPreprintAdapter("socarxiv", "SocArXiv"),
+    # 综合仓储按官方文献类型筛选预印本，避免混入期刊论文、数据集或软件记录。
+    "hal": HalAdapter(),
+    "zenodo": ZenodoAdapter(),
 }
+# 参数校验和接口文档共用注册表，新增来源后无需另行维护一份后端白名单。
 available_platforms = ["all", *sources]
 
 
@@ -127,8 +145,7 @@ async def search_all_platforms(
     page_size: int,
 ) -> tuple[list[Paper], int, list[str], list[str]]:
     platform_names = list(sources)
-    # Fetch one full page from every source so access-capable records can be ranked
-    # fairly before the merged UI page is capped at page_size.
+    # 每个来源各取一整页，合并排序后才截取展示页，避免某来源过早被分配更少名额。
     per_source_page_size = page_size
     results = await asyncio.gather(
         *(
@@ -140,6 +157,7 @@ async def search_all_platforms(
             )
             for platform in platform_names
         ),
+        # 单个来源失败作为结果收集，允许其他平台的成功论文继续返回。
         return_exceptions=True,
     )
 
@@ -158,6 +176,7 @@ async def search_all_platforms(
         papers, platform_total = result
         searched_platforms.append(platform)
         merged.extend(papers)
+        # 总数来自各源命中数相加，存在索引/原平台重叠，因此全平台搜索标记为近似值。
         total += platform_total
 
     if not searched_platforms:
@@ -168,8 +187,9 @@ async def search_all_platforms(
         )
         raise PaperSourceError(f"所有论文平台请求均失败。{details}")
 
-    unique_papers = deduplicate_papers(merged)
-    unique_papers.sort(key=access_priority)
+    # 同一预印本可能来自聚合索引和原平台；先排序，去重时保留访问能力更好的版本。
+    unique_papers = deduplicate_papers(sorted(merged, key=access_priority))
+    # 这里只合并各源当前页，截取后不额外拉取下一页来补足展示数量。
     return unique_papers[:page_size], total, searched_platforms, failed_platforms
 
 
@@ -177,7 +197,7 @@ async def search_all_platforms(
 # 处理论文搜索接口请求，并根据平台参数返回统一结果。
 async def search_papers(
     q: str = Query(default="", description="Search keyword"),
-    platform: str = Query(default="all", description="all or one supported platform"),
+    platform: str = Query(default="all", description=f"Supported platforms: {', '.join(available_platforms)}"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, alias="pageSize", ge=1, le=50),
 ) -> PaperSearchResponse | JSONResponse:
